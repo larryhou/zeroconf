@@ -168,7 +168,7 @@ var cleanupFreq = 10 * time.Second
 // Start listeners and waits for the shutdown signal from exit channel
 func (c *client) mainloop(ctx context.Context, params *lookupParams) {
 	// start listening for responses
-	msgCh := make(chan *dns.Msg, 32)
+	msgCh := make(chan *DNSMsg, 32)
 	if c.ipv4conn != nil {
 		go c.recv(ctx, c.ipv4conn, msgCh)
 	}
@@ -250,6 +250,9 @@ func (c *client) mainloop(ctx context.Context, params *lookupParams) {
 					entries[rr.Hdr.Name].Expiry = now.Add(time.Duration(rr.Hdr.Ttl) * time.Second)
 				}
 			}
+
+			// Propagate the interface index, from which messages have just been received.
+			for _, e := range entries { e.IfIndex = msg.IfIndex }
 			// Associate IPs in a second round as other fields should be filled by now.
 			for _, answer := range sections {
 				switch rr := answer.(type) {
@@ -312,20 +315,46 @@ func (c *client) shutdown() {
 	}
 }
 
+type ControlMessage struct {
+	Src     net.IP // source address, specifying only
+	Dst     net.IP // destination address, receiving only
+	IfIndex int    // interface index, must be 1 <= value when specifying
+	Raw     any    // IPv4/IPv6 ControlMessage
+}
+
+type DNSMsg struct {
+	dns.Msg
+	*ControlMessage
+}
+
 // Data receiving routine reads from connection, unpacks packets into dns.Msg
 // structures and sends them to a given msgCh channel
-func (c *client) recv(ctx context.Context, l interface{}, msgCh chan *dns.Msg) {
-	var readFrom func([]byte) (n int, src net.Addr, err error)
+func (c *client) recv(ctx context.Context, l interface{}, msgCh chan *DNSMsg) {
+	var readFrom func([]byte) (n int, cm *ControlMessage, src net.Addr, err error)
 
 	switch pConn := l.(type) {
 	case *ipv6.PacketConn:
-		readFrom = func(b []byte) (n int, src net.Addr, err error) {
-			n, _, src, err = pConn.ReadFrom(b)
+		readFrom = func(b []byte) (n int, cm *ControlMessage, src net.Addr, err error) {
+			var r *ipv6.ControlMessage
+			n, r, src, err = pConn.ReadFrom(b)
+			cm = &ControlMessage{
+				Src:     r.Src,
+				Dst:     r.Dst,
+				IfIndex: r.IfIndex,
+				Raw:     r,
+			}
 			return
 		}
 	case *ipv4.PacketConn:
-		readFrom = func(b []byte) (n int, src net.Addr, err error) {
-			n, _, src, err = pConn.ReadFrom(b)
+		readFrom = func(b []byte) (n int, cm *ControlMessage, src net.Addr, err error) {
+			var r *ipv4.ControlMessage
+			n, r, src, err = pConn.ReadFrom(b)
+			cm = &ControlMessage{
+				Src:     r.Src,
+				Dst:     r.Dst,
+				IfIndex: r.IfIndex,
+				Raw:     r,
+			}
 			return
 		}
 
@@ -344,12 +373,13 @@ func (c *client) recv(ctx context.Context, l interface{}, msgCh chan *dns.Msg) {
 			return
 		}
 
-		n, _, err := readFrom(buf)
+		n, cm, _, err := readFrom(buf)
 		if err != nil {
 			fatalErr = err
 			continue
 		}
-		msg := new(dns.Msg)
+		msg := new(DNSMsg)
+		msg.ControlMessage = cm
 		if err := msg.Unpack(buf[:n]); err != nil {
 			// log.Printf("[WARN] mdns: Failed to unpack packet: %v", err)
 			continue
