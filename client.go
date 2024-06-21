@@ -337,11 +337,13 @@ func (c *client) recv(ctx context.Context, l interface{}, msgCh chan *DNSMsg) {
 		readFrom = func(b []byte) (n int, cm *ControlMessage, src net.Addr, err error) {
 			var r *ipv6.ControlMessage
 			n, r, src, err = pConn.ReadFrom(b)
-			cm = &ControlMessage{
-				Src:     r.Src,
-				Dst:     r.Dst,
-				IfIndex: r.IfIndex,
-				Raw:     r,
+			if err == nil {
+				cm = &ControlMessage{
+					Src:     r.Src,
+					Dst:     r.Dst,
+					IfIndex: r.IfIndex,
+					Raw:     r,
+				}
 			}
 			return
 		}
@@ -349,11 +351,13 @@ func (c *client) recv(ctx context.Context, l interface{}, msgCh chan *DNSMsg) {
 		readFrom = func(b []byte) (n int, cm *ControlMessage, src net.Addr, err error) {
 			var r *ipv4.ControlMessage
 			n, r, src, err = pConn.ReadFrom(b)
-			cm = &ControlMessage{
-				Src:     r.Src,
-				Dst:     r.Dst,
-				IfIndex: r.IfIndex,
-				Raw:     r,
+			if err == nil {
+				cm = &ControlMessage{
+					Src:     r.Src,
+					Dst:     r.Dst,
+					IfIndex: r.IfIndex,
+					Raw:     r,
+				}
 			}
 			return
 		}
