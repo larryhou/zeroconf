@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"math/rand"
 	"net"
 	"runtime"
 	"strings"
@@ -279,9 +278,6 @@ func (c *client) mainloop(ctx context.Context, params *lookupParams) {
 					delete(sentEntries, k)
 					continue
 				}
-				if _, ok := sentEntries[k]; ok {
-					continue
-				}
 
 				// If this is an DNS-SD query do not throw PTR away.
 				// It is expected to have only PTR for enumeration
@@ -408,8 +404,7 @@ func (c *client) periodicQuery(ctx context.Context, params *lookupParams) error 
 		return err
 	}
 
-	const maxInterval = 60 * time.Second
-	interval := initialQueryInterval
+	interval := time.Second * 2
 	timer := time.NewTimer(interval)
 	defer timer.Stop()
 	for {
@@ -430,15 +425,6 @@ func (c *client) periodicQuery(ctx context.Context, params *lookupParams) error 
 		if err := c.query(params); err != nil {
 			return err
 		}
-		// Exponential increase of the interval with jitter:
-		// the new interval will be between 1.5x and 2.5x the old interval, capped at maxInterval.
-		if interval != maxInterval {
-			interval += time.Duration(rand.Int63n(interval.Nanoseconds())) + interval/2
-			if interval > maxInterval {
-				interval = maxInterval
-			}
-		}
-		timer.Reset(interval)
 	}
 }
 
