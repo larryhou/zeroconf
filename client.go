@@ -34,11 +34,13 @@ type client struct {
 	ipv4conn *ipv4.PacketConn
 	ipv6conn *ipv6.PacketConn
 	ifaces   []net.Interface
+	interval time.Duration
 }
 
 type clientOpts struct {
 	listenOn IPType
 	ifaces   []net.Interface
+	interval time.Duration
 }
 
 // ClientOption fills the option struct to configure intefaces, etc.
@@ -62,6 +64,12 @@ func SelectIfaces(ifaces []net.Interface) ClientOption {
 	}
 }
 
+func SelectInterval(n time.Duration) ClientOption {
+	return func(opts *clientOpts) {
+		opts.interval = n
+	}
+}
+
 // Browse for all services of a given type in a given domain.
 // Received entries are sent on the entries channel.
 // It blocks until the context is canceled (or an error occurs).
@@ -76,6 +84,7 @@ func Browse(ctx context.Context, service, domain string, entries chan<- *Service
 	}
 	params.Entries = entries
 	params.isBrowsing = true
+	params.interval = cl.interval
 	return cl.run(ctx, params)
 }
 
@@ -100,6 +109,7 @@ func applyOpts(options ...ClientOption) clientOpts {
 	// Apply default configuration and load supplied options.
 	var conf = clientOpts{
 		listenOn: IPv4AndIPv6,
+		interval: time.Second * 4,
 	}
 	for _, o := range options {
 		if o != nil {
@@ -156,6 +166,7 @@ func newClient(opts clientOpts) (*client, error) {
 	}
 
 	return &client{
+		interval: opts.interval,
 		ipv4conn: ipv4conn,
 		ipv6conn: ipv6conn,
 		ifaces:   ifaces,
@@ -404,12 +415,9 @@ func (c *client) periodicQuery(ctx context.Context, params *lookupParams) error 
 		return err
 	}
 
-	interval := time.Second * 2
-	timer := time.NewTimer(interval)
-	defer timer.Stop()
 	for {
 		select {
-		case <-timer.C:
+		case <-time.After(params.interval):
 			// Wait for next iteration.
 		case <-params.stopProbing:
 			// Chan is closed (or happened in the past).

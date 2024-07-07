@@ -73,6 +73,7 @@ type lookupParams struct {
 
 	isBrowsing  bool
 	stopProbing chan struct{}
+	interval    time.Duration
 	once        sync.Once
 }
 
